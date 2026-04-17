@@ -53,4 +53,29 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+router.post("/transfer", async (req, res) => {
+  try {
+    const { fromAccountId, toAccountId, amount, date, description } = req.body;
+    if (!fromAccountId || !toAccountId || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: "fromAccountId, toAccountId y amount son obligatorios",
+      });
+    }
+    const result = await transactionService.createTransfer({
+      fromAccountId: Number(fromAccountId),
+      toAccountId: Number(toAccountId),
+      amount,
+      date,
+      description,
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

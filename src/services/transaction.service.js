@@ -172,6 +172,67 @@ class TransactionService {
       throw new Error(`Error actualizando transacción: ${error.message}`);
     }
   }
+
+  async createTransfer({ fromAccountId, toAccountId, amount, date, description }) {
+    const t = await sequelize.transaction();
+    try {
+      const parsedAmount = Number(amount);
+      if (!parsedAmount || parsedAmount <= 0) {
+        throw new Error("El monto debe ser mayor a 0");
+      }
+      if (fromAccountId === toAccountId) {
+        throw new Error("La cuenta origen y destino no pueden ser la misma");
+      }
+
+      const today = date || new Date().toISOString().slice(0, 10);
+
+      // Egreso en cuenta origen (dinero que sale)
+      await Transaction.create(
+        {
+          accountId: fromAccountId,
+          amount: parsedAmount,
+          type: "egreso",
+          date: today,
+          description: description || "Transferencia a ahorros",
+          isTransfer: true,
+        },
+        { transaction: t }
+      );
+
+      // Ingreso en cuenta destino (dinero que entra)
+      await Transaction.create(
+        {
+          accountId: toAccountId,
+          amount: parsedAmount,
+          type: "ingreso",
+          date: today,
+          description: description || "Transferencia desde cuenta",
+          isTransfer: true,
+        },
+        { transaction: t }
+      );
+
+      // Actualizar balances
+      await Account.decrement("balance", {
+        by: parsedAmount,
+        where: { id: fromAccountId },
+        transaction: t,
+      });
+
+      await Account.increment("balance", {
+        by: parsedAmount,
+        where: { id: toAccountId },
+        transaction: t,
+      });
+
+      await t.commit();
+
+      return { success: true };
+    } catch (error) {
+      await t.rollback();
+      throw new Error(`Error creando transferencia: ${error.message}`);
+    }
+  }
 }
 
 module.exports = new TransactionService();

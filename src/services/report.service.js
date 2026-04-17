@@ -1,4 +1,4 @@
-const { Transaction, Category, sequelize } = require("../models");
+const { Transaction, Category, Account, sequelize } = require("../models");
 const { Op } = require("sequelize");
 
 class ReportService {
@@ -12,29 +12,54 @@ class ReportService {
       const startStr = startDate.toISOString().split("T")[0];
       const endStr = endDate.toISOString().split("T")[0];
 
-      // 1. Total ingresos
+      const dateRange = { [Op.between]: [startStr, endStr] };
+
+      // 1. Total ingresos (excluyendo transferencias internas)
       const totalIncomeResult = await Transaction.sum("amount", {
         where: {
           type: "ingreso",
-          date: {
-            [Op.between]: [startStr, endStr],
-          },
+          isTransfer: false,
+          date: dateRange,
         },
       });
       const totalIncome = totalIncomeResult || 0;
 
-      // 2. Total egresos
+      // 2. Total egresos (excluyendo transferencias internas)
       const totalExpenseResult = await Transaction.sum("amount", {
         where: {
           type: "egreso",
-          date: {
-            [Op.between]: [startStr, endStr],
-          },
+          isTransfer: false,
+          date: dateRange,
         },
       });
       const totalExpense = totalExpenseResult || 0;
 
-      // 3. Egresos agrupados por categoria
+      // 3. Ahorros netos del mes:
+      //    = dinero que ENTRÓ a la cuenta "Ahorros" (ingresos isTransfer)
+      //    − dinero que SALIÓ de la cuenta "Ahorros" (egresos isTransfer)
+      let totalSavings = 0;
+      const ahorrosAccount = await Account.findOne({ where: { name: "Ahorros" } });
+      if (ahorrosAccount) {
+        const savingsInResult = await Transaction.sum("amount", {
+          where: {
+            type: "ingreso",
+            isTransfer: true,
+            accountId: ahorrosAccount.id,
+            date: dateRange,
+          },
+        });
+        const savingsOutResult = await Transaction.sum("amount", {
+          where: {
+            type: "egreso",
+            isTransfer: true,
+            accountId: ahorrosAccount.id,
+            date: dateRange,
+          },
+        });
+        totalSavings = (savingsInResult || 0) - (savingsOutResult || 0);
+      }
+
+      // 4. Egresos agrupados por categoria (excluyendo transferencias)
       const expensesByCategoryRaw = await Transaction.findAll({
         attributes: [
           "categoryId",
@@ -42,9 +67,8 @@ class ReportService {
         ],
         where: {
           type: "egreso",
-          date: {
-            [Op.between]: [startStr, endStr],
-          },
+          isTransfer: false,
+          date: dateRange,
         },
         include: [
           {
@@ -67,6 +91,7 @@ class ReportService {
         data: {
           totalIncome,
           totalExpense,
+          totalSavings,
           expensesByCategory,
         },
       };
